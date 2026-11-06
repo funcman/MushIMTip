@@ -1,0 +1,33 @@
+#=====================================================================
+# MushIMTip .gitattributes - unified file formats
+#
+# Note: BOM cannot be controlled via gitattributes; convention (follow when saving in an editor):
+#   *.ps1  UTF-8 with BOM   (required by Windows PowerShell 5.1)
+#=====================================================================
+
+# Default: auto-detect text files, normalized to LF in the repo
+* text=auto
+
+#--- Scripts: pinned line endings ---------------------------------------
+*.ps1       text eol=crlf working-tree-encoding=UTF-8
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+#--- Source and build files ----------------------------------------------
+*.c         text eol=lf
+*.h         text eol=lf
+*.cpp       text eol=lf
+*.hpp       text eol=lf
+*.cmake     text eol=lf
+CMakeLists.txt text eol=lf
+*.md        text eol=lf
+
+#--- Binary: no line-ending/encoding conversion ---------------------------
+*.dll       binary
+*.exe       binary
+*.lib       binary
+*.exp       binary
+*.pdb       binary
+*.ilk       binary
+*.ico       binary
+*.png       binary
