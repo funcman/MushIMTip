@@ -5,11 +5,11 @@
 ## 功能
 
 - 在文本光标旁实时显示当前输入法状态：`中`（IME 中文模式）/ `英`（英文模式或无 IME 布局）
-- 光标消失时提示自动隐藏
-- 系统托盘图标 + 右键菜单：
-  - **跟随输入光标**：启停提示
-  - **开机自启动**：写入 / 移除 `HKCU\...\Run` 注册表项
-  - **退出**
+- 光标消失时提示自动隐藏；提示窗半透明（背景约 70% 不透明度，文字保持清晰）
+- 系统托盘图标，右键菜单「设置…」打开配置窗口，改动即时生效并写入注册表（`HKCU\Software\MushIMTip`）：
+  - 跟随输入光标、开机自启动、提示大小跟随光标高度
+  - 缩放（50%–200%）、不透明度
+  - 中 / 英状态颜色（系统颜色选择对话框）
 - Per-Monitor V2 DPI 感知；单实例运行
 
 ## 实现原理
@@ -46,7 +46,7 @@ script\build.ps1 -CleanOnly     # 只清理不构建
 ## 目录结构
 
 ```
-src/      源代码（main / tip_window / ime）
+src/      源代码（main / tip_window / ime / caret_uia / caret_msaa / config / settings_dialog）
 script/   构建脚本
 build/    CMake 构建目录（git 忽略）
 bin/      构建产物（git 忽略）

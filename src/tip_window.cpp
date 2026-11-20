@@ -12,14 +12,8 @@ constexpr int kTipHeight  = 22;
 constexpr int kTipOffsetX = 8; // gap between caret and tip
 constexpr int kTipOffsetY = 4;
 
-constexpr COLORREF kColorChinese = RGB(0xE5, 0x39, 0x35); // red
-constexpr COLORREF kColorEnglish = RGB(0x1E, 0x90, 0xFF); // blue
-
-// Opacity of the rounded background (0-255); text and border stay opaque.
-constexpr BYTE kBackgroundAlpha = 180;
-
-HFONT CreateTipFont(int height13) {
-    return CreateFontW(-height13, 0, 0, 0, FW_SEMIBOLD,
+HFONT CreateTipFont(int pixelHeight) {
+    return CreateFontW(-pixelHeight, 0, 0, 0, FW_SEMIBOLD,
                        FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS,
@@ -60,6 +54,7 @@ bool TipWindow::Create(HINSTANCE hInstance) {
         return false;
 
     m_dpi = GetDpiForWindow(m_hwnd);
+    m_fontH = Scale(13);
     RecreateFont();
 
     const int w = Scale(kTipWidth);
@@ -97,7 +92,17 @@ void TipWindow::Destroy() {
 void TipWindow::RecreateFont() {
     if (m_font)
         DeleteObject(m_font);
-    m_font = CreateTipFont(Scale(13));
+    m_font = CreateTipFont(m_fontH > 0 ? m_fontH : Scale(13));
+}
+
+void TipWindow::ApplyConfig(const Config& config) {
+    m_colorChinese    = config.colorChinese;
+    m_colorEnglish    = config.colorEnglish;
+    m_alpha           = config.alpha < 20 ? 20 : (config.alpha > 255 ? 255 : config.alpha);
+    m_scalePct        = config.scalePct < 50 ? 50 : (config.scalePct > 200 ? 200 : config.scalePct);
+    m_maxHeightPx     = config.maxHeightPx < 12 ? 12 : (config.maxHeightPx > 64 ? 64 : config.maxHeightPx);
+    m_sizeFollowCaret = config.sizeFollowCaret;
+    m_rendered = false; // 下一次 ShowState 时重绘
 }
 
 bool TipWindow::EnsureBuffers(int w, int h) {
@@ -149,7 +154,14 @@ void TipWindow::Render() {
     ZeroMemory(m_bits, static_cast<size_t>(m_bufW) * m_bufH * 4);
 
     const bool chinese = (m_state == ImeState::Chinese);
-    const COLORREF bgColor = chinese ? kColorChinese : kColorEnglish;
+    const COLORREF bgColor = chinese ? m_colorChinese : m_colorEnglish;
+
+    // 字体高度随提示高度走（设计比例 22:13），变化时重建。
+    const int fontH = m_bufH * 13 / 22;
+    if (fontH > 0 && m_fontH != fontH) {
+        m_fontH = fontH;
+        RecreateFont();
+    }
 
     RECT rc{ 0, 0, m_bufW, m_bufH };
     HBRUSH brush = CreateSolidBrush(bgColor);
@@ -173,6 +185,7 @@ void TipWindow::Render() {
 
     // Alpha pass (GDI leaves the alpha byte at 0). UpdateLayeredWindow wants
     // premultiplied colors, so background pixels get bg*alpha/255.
+    const BYTE bgAlpha = static_cast<BYTE>(m_alpha);
     auto* px = static_cast<BYTE*>(m_bits);
     const BYTE bgR = GetRValue(bgColor);
     const BYTE bgG = GetGValue(bgColor);
@@ -183,10 +196,10 @@ void TipWindow::Render() {
         if (r == 0 && g == 0 && b == 0) {
             px[3] = 0; // outside the rounded shape
         } else if (r == bgR && g == bgG && b == bgB) {
-            px[0] = static_cast<BYTE>((b * kBackgroundAlpha) / 255);
-            px[1] = static_cast<BYTE>((g * kBackgroundAlpha) / 255);
-            px[2] = static_cast<BYTE>((r * kBackgroundAlpha) / 255);
-            px[3] = kBackgroundAlpha;
+            px[0] = static_cast<BYTE>((b * bgAlpha) / 255);
+            px[1] = static_cast<BYTE>((g * bgAlpha) / 255);
+            px[2] = static_cast<BYTE>((r * bgAlpha) / 255);
+            px[3] = bgAlpha;
         } else {
             px[3] = 255; // text, border, and their antialiased edges
         }
@@ -207,8 +220,18 @@ void TipWindow::ShowState(ImeState state, const CaretPos& caret) {
     if (!m_hwnd)
         return;
 
-    const int w = Scale(kTipWidth);
-    const int h = Scale(kTipHeight);
+    // 高度：跟随光标高度（上下留白、限幅）或用设计尺寸，再乘用户缩放。
+    int hBase;
+    if (m_sizeFollowCaret && caret.height > 0) {
+        hBase = caret.height + Scale(6);
+        if (hBase < Scale(16)) hBase = Scale(16);
+        const int hMax = Scale(m_maxHeightPx);
+        if (hBase > hMax) hBase = hMax;
+    } else {
+        hBase = Scale(kTipHeight);
+    }
+    const int h = hBase * m_scalePct / 100;
+    const int w = h * kTipWidth / kTipHeight;
 
     int x = caret.anchor.x + Scale(kTipOffsetX);
     int y = caret.anchor.y + Scale(kTipOffsetY);

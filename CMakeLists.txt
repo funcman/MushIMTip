@@ -41,6 +41,8 @@ add_executable(MushIMTip WIN32
 	src/ime.cpp
 	src/caret_uia.cpp
 	src/caret_msaa.cpp
+	src/config.cpp
+	src/settings_dialog.cpp
 	src/tip_window.cpp
 )
 
@@ -51,4 +53,4 @@ target_compile_definitions(MushIMTip PRIVATE
 	NOMINMAX
 )
 
-target_link_libraries(MushIMTip PRIVATE imm32 oleacc)
+target_link_libraries(MushIMTip PRIVATE imm32 oleacc comdlg32 comctl32)

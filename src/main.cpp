@@ -4,7 +4,9 @@
 
 #include <iterator>
 
+#include "config.h"
 #include "ime.h"
+#include "settings_dialog.h"
 #include "tip_window.h"
 
 namespace mushimtip {
@@ -13,21 +15,20 @@ namespace {
 
 constexpr wchar_t kAppName[]   = L"MushIMTip";
 constexpr wchar_t kClassName[] = L"MushIMTipMessageWindow";
-constexpr wchar_t kRunKey[]    = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 constexpr UINT     kTrayMessage    = WM_APP + 1;
 constexpr UINT_PTR kTimerId        = 1;
 constexpr UINT     kPollIntervalMs = 60;
 
-constexpr WORD IDM_TOGGLE    = 1001; // enable / pause the tip
-constexpr WORD IDM_AUTOSTART = 1002; // launch on user logon
-constexpr WORD IDM_EXIT      = 1003;
+constexpr WORD IDM_SETTINGS = 1001;
+constexpr WORD IDM_EXIT     = 1002;
 
 HINSTANCE g_hInstance = nullptr;
 HWND      g_hwndMsg   = nullptr;
 HICON     g_trayIcon  = nullptr;
 UINT      g_taskbarCreated = 0;
 TipWindow g_tip;
+Config    g_config;
 bool      g_enabled = true;
 
 // ---------------------------------------------------------------- DPI
@@ -45,37 +46,23 @@ void EnableDpiAwareness() {
     SetProcessDPIAware();
 }
 
-// ------------------------------------------------------------ autostart
+// ------------------------------------------------------------ settings
 
-bool IsAutoStartEnabled() {
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_READ, &key) != ERROR_SUCCESS)
-        return false;
-    DWORD type = 0;
-    DWORD size = 0;
-    bool present = RegQueryValueExW(key, kAppName, nullptr, &type, nullptr, &size) == ERROR_SUCCESS;
-    RegCloseKey(key);
-    return present;
+// 配置对话框的变更回调：任何设置变化立即生效并持久化。
+void OnSettingsApply(const Config& config, bool autoStart, void*) {
+    g_config  = config;
+    g_enabled = config.followCaret;
+    if (!g_enabled)
+        g_tip.Hide();
+    g_tip.ApplyConfig(config);
+    SetAutoStart(autoStart);
+    SaveConfig(config);
 }
 
-void SetAutoStart(bool enable) {
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS)
-        return;
-    if (enable) {
-        wchar_t path[MAX_PATH + 2] = {};
-        GetModuleFileNameW(nullptr, path + 1, MAX_PATH);
-        path[0] = L'"';
-        size_t len = wcslen(path);
-        path[len] = L'"';
-        path[len + 1] = L'\0';
-        RegSetValueExW(key, kAppName, 0, REG_SZ,
-                       reinterpret_cast<const BYTE*>(path),
-                       static_cast<DWORD>((wcslen(path) + 1) * sizeof(wchar_t)));
-    } else {
-        RegDeleteValueW(key, kAppName);
-    }
-    RegCloseKey(key);
+void ShowSettings() {
+    ShowSettingsDialog(g_hInstance, g_hwndMsg,
+                       g_config, IsAutoStartEnabled(),
+                       &OnSettingsApply, nullptr);
 }
 
 // ---------------------------------------------------------- tray icon
@@ -175,12 +162,9 @@ void ShowTrayMenu() {
     if (!menu)
         return;
 
-    AppendMenuW(menu, MF_STRING | (g_enabled ? MF_CHECKED : 0),
-                IDM_TOGGLE, L"跟随输入光标");
-    AppendMenuW(menu, MF_STRING | (IsAutoStartEnabled() ? MF_CHECKED : 0),
-                IDM_AUTOSTART, L"开机自启动");
+    AppendMenuW(menu, MF_STRING, IDM_SETTINGS, L"设置(&S)...");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出");
+    AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出(&X)");
 
     POINT pt;
     GetCursorPos(&pt);
@@ -214,13 +198,8 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
-        case IDM_TOGGLE:
-            g_enabled = !g_enabled;
-            if (!g_enabled)
-                g_tip.Hide();
-            return 0;
-        case IDM_AUTOSTART:
-            SetAutoStart(!IsAutoStartEnabled());
+        case IDM_SETTINGS:
+            ShowSettings();
             return 0;
         case IDM_EXIT:
             DestroyWindow(hwnd);
@@ -259,8 +238,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     g_hInstance = hInstance;
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
+    g_config  = LoadConfig();
+    g_enabled = g_config.followCaret;
+
     if (!g_tip.Create(hInstance))
         return 1;
+    g_tip.ApplyConfig(g_config);
 
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
